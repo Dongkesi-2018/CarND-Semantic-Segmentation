@@ -17,6 +17,19 @@ else:
     print('Default GPU Device: {}'.format(tf.test.gpu_device_name()))
 
 
+import cv2
+import glob
+def image2video():
+    fps = 15
+    fourcc = cv2.VideoWriter_fourcc(*'XVID')
+    videoWriter = cv2.VideoWriter('./runs/output.avi', fourcc, fps, (576, 160))
+    images_path = glob.glob("./runs/*/*.png")
+
+    for path in images_path:
+        img = cv2.imread(path)
+        videoWriter.write(img)
+    videoWriter.release()
+
 def load_vgg(sess, vgg_path):
     """
     Load Pretrained VGG Model into TensorFlow.
@@ -32,8 +45,20 @@ def load_vgg(sess, vgg_path):
     vgg_layer3_out_tensor_name = 'layer3_out:0'
     vgg_layer4_out_tensor_name = 'layer4_out:0'
     vgg_layer7_out_tensor_name = 'layer7_out:0'
-    
-    return None, None, None, None, None
+
+    tf.saved_model.loader.load(sess, [vgg_tag], vgg_path)
+    graph = tf.get_default_graph()
+
+    print('1', tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES))
+
+
+    image_input = graph.get_tensor_by_name(vgg_input_tensor_name)
+    keep_prob = graph.get_tensor_by_name(vgg_keep_prob_tensor_name)
+    layer3_out = graph.get_tensor_by_name(vgg_layer3_out_tensor_name)
+    layer4_out = graph.get_tensor_by_name(vgg_layer4_out_tensor_name)
+    layer7_out = graph.get_tensor_by_name(vgg_layer7_out_tensor_name)
+
+    return image_input, keep_prob, layer3_out, layer4_out, layer7_out
 tests.test_load_vgg(load_vgg, tf)
 
 
@@ -47,7 +72,43 @@ def layers(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes):
     :return: The Tensor for the last layer of output
     """
     # TODO: Implement function
-    return None
+    l2_scale = 0.0001
+    stddev_value = 0.01
+
+    with tf.variable_scope("train_scope"):
+        vgg_layer3_out_scaled = tf.multiply(vgg_layer3_out, 0.0001)
+        vgg_layer4_out_scaled = tf.multiply(vgg_layer4_out, 0.01)
+
+        vgg_layer3_out_conv1x1 = tf.layers.conv2d(vgg_layer3_out_scaled, num_classes, 1, strides=(1, 1), padding='same',
+                                                  kernel_initializer=tf.random_normal_initializer(stddev=stddev_value),
+                                                  kernel_regularizer=tf.contrib.layers.l2_regularizer(l2_scale))
+        vgg_layer4_out_conv1x1 = tf.layers.conv2d(vgg_layer4_out_scaled, num_classes, 1, strides=(1, 1), padding='same',
+                                                  kernel_initializer=tf.random_normal_initializer(stddev=stddev_value),
+                                                  kernel_regularizer=tf.contrib.layers.l2_regularizer(l2_scale))
+
+        # reduce the number of filters from 4096 to the number of classes
+        vgg_layer7_out_conv1x1 = tf.layers.conv2d(vgg_layer7_out, num_classes, 1, strides=(1, 1), padding='same',
+                                          kernel_initializer=tf.random_normal_initializer(stddev=stddev_value),
+                                          kernel_regularizer=tf.contrib.layers.l2_regularizer(l2_scale))
+
+        ## decoder
+
+        layer7_trans = tf.layers.conv2d_transpose(vgg_layer7_out_conv1x1, num_classes, 4, strides=(2, 2), padding='same',
+                                                    kernel_initializer=tf.random_normal_initializer(stddev=stddev_value),
+                                                    kernel_regularizer=tf.contrib.layers.l2_regularizer(l2_scale))
+        # skip connection pool4
+        layer4_skip = tf.add(layer7_trans, vgg_layer4_out_conv1x1)
+        layer4_trans = tf.layers.conv2d_transpose(layer4_skip, num_classes, 4, strides=(2, 2), padding='same',
+                                                    kernel_initializer=tf.random_normal_initializer(stddev=stddev_value),
+                                                    kernel_regularizer=tf.contrib.layers.l2_regularizer(l2_scale))
+
+        # skip connection pool3
+        layer3_skip = tf.add(layer4_trans, vgg_layer3_out_conv1x1)
+        layer3_trans = tf.layers.conv2d_transpose(layer3_skip, num_classes, 16, strides=(8, 8), padding='same',
+                                                    kernel_initializer=tf.random_normal_initializer(stddev=stddev_value),
+                                                    kernel_regularizer=tf.contrib.layers.l2_regularizer(l2_scale))
+
+    return layer3_trans
 tests.test_layers(layers)
 
 
@@ -61,7 +122,25 @@ def optimize(nn_last_layer, correct_label, learning_rate, num_classes):
     :return: Tuple of (logits, train_op, cross_entropy_loss)
     """
     # TODO: Implement function
-    return None, None, None
+    logits = tf.reshape(nn_last_layer, (-1, num_classes))
+    labels = tf.reshape(correct_label, (-1, num_classes))
+
+    reg_loss = sum(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES))
+
+    cross_entropy_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits = logits, labels = labels))
+    total_loss = reg_loss + cross_entropy_loss
+
+    new_trainable_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, "train_scope")
+    trainable_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)[-10-len(new_trainable_vars):]
+    print('2', trainable_vars)
+    optimizer = tf.train.AdamOptimizer(learning_rate = learning_rate)
+    # For passing unit test
+    if trainable_vars == []:
+        trainable_vars = None
+    train_op = optimizer.minimize(total_loss, var_list=trainable_vars)
+
+    return logits, train_op, total_loss
+
 tests.test_optimize(optimize)
 
 
@@ -81,9 +160,22 @@ def train_nn(sess, epochs, batch_size, get_batches_fn, train_op, cross_entropy_l
     :param learning_rate: TF Placeholder for learning rate
     """
     # TODO: Implement function
-    pass
-tests.test_train_nn(train_nn)
+    sess.run(tf.global_variables_initializer())
+    print("Training start...\n")
+    for epoch in range(epochs):
+        step = 0
+        for images, labels in get_batches_fn(batch_size):
+            _, loss = sess.run([train_op, cross_entropy_loss],
+                     feed_dict = {input_image: images,
+                                  correct_label: labels,
+                                  learning_rate: 0.001,
+                                  keep_prob: 0.5})
+            step += 1
+            print('Epoch: {:>2}, Step: {:>2}, Train Loss: {:>9.6f}'.format(epoch + 1, step, loss))
 
+    print("Training finshed...\n")
+
+tests.test_train_nn(train_nn)
 
 def run():
     num_classes = 2
@@ -98,6 +190,8 @@ def run():
     # OPTIONAL: Train and Inference on the cityscapes dataset instead of the Kitti dataset.
     # You'll need a GPU with at least 10 teraFLOPS to train on.
     #  https://www.cityscapes-dataset.com/
+    correct_label = tf.placeholder(tf.int32, (None, None, None, num_classes))
+    learning_rate = tf.placeholder(tf.float32)
 
     with tf.Session() as sess:
         # Path to vgg model
@@ -109,14 +203,27 @@ def run():
         #  https://datascience.stackexchange.com/questions/5224/how-to-prepare-augment-images-for-neural-network
 
         # TODO: Build NN using load_vgg, layers, and optimize function
+        input_image, keep_prob, layer3_out, layer4_out, layer7_out = load_vgg(sess, vgg_path)
+        nn_last_layer = layers(layer3_out, layer4_out, layer7_out, num_classes)
+        logits, train_op, total_loss = optimize(nn_last_layer, correct_label, learning_rate, num_classes)
 
         # TODO: Train NN using the train_nn function
 
-        # TODO: Save inference data using helper.save_inference_samples
-        #  helper.save_inference_samples(runs_dir, data_dir, sess, image_shape, logits, keep_prob, input_image)
+        epochs = 30
+        batch_size = 16
+        print('3', tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES))
+        train_nn(sess, epochs, batch_size, get_batches_fn, train_op, total_loss, input_image,
+                 correct_label, keep_prob, learning_rate)
 
+        # TODO: Save inference data using helper.save_inference_samples
+
+        #  helper.save_inference_samples(runs_dir, data_dir, sess, image_shape, logits, keep_prob, input_image)
+        helper.save_inference_samples(runs_dir, data_dir, sess, image_shape, logits, keep_prob, input_image)
         # OPTIONAL: Apply the trained model to a video
+        image2video()
 
 
 if __name__ == '__main__':
     run()
+
+
