@@ -1,4 +1,31 @@
 # Semantic Segmentation
+
+---
+## 1. Output Video
+
+[![Watch the video](./writeup_res/ss.png)](https://youtu.be/a21pRlh_2T8)
+
+## 2. Implementation
+
+I used pre-trained VGG16 according to the case provided in the course, then used 1x1 convolution on the last layer, then used three transposition convolutions, and connected first two to Pool4 and Pool3 respectively to improve the fineness of the output image. Pool3, Pool4 also made corresponding adjustments, that is, according to the Q&A recommendation using the scaling parameters, and then use 1x1 convolution to make it output the corresponding number of classes.
+
+## 3. Optimizer & Loss
+
+I used the Adam optimizer, and cross entropy. At the same time, L2 regularization has been added. 
+What needs to be explained here is that I did not completely retrain all the parameters. I only trained the layers after the Conv5_1 of the VGG16 model and the newly added layers because my local computing resources are limited. It can be imagined that the results obtained were not better than the model which is retrained with all the parameters. I only got a loss of 0.3 after 30 epoches, but the effect was not too bad.
+
+## 4. Output Samples
+
+<p align="center">
+<img src="./writeup_res/um_000014.png" height="70%" width="70%" alt="image" />
+</p>
+
+<p align="center">
+<img src="./writeup_res/um_000063.png" height="70%" width="70%" alt="image" />
+</p>
+
+---
+
 ### Introduction
 In this project, you'll label the pixels of a road in images using a Fully Convolutional Network (FCN).
 
@@ -34,7 +61,7 @@ python main.py
  - `project_tests.py`
  - Newest inference images from `runs` folder  (**all images from the most recent run**)
  
- ### Tips
+### Tips
 - The link for the frozen `VGG16` model is hardcoded into `helper.py`.  The model can be found [here](https://s3-us-west-1.amazonaws.com/udacity-selfdrivingcar/vgg.zip)
 - The model is not vanilla `VGG16`, but a fully convolutional version, which already contains the 1x1 convolutions to replace the fully connected layers. Please see this [forum post](https://discussions.udacity.com/t/here-is-some-advice-and-clarifications-about-the-semantic-segmentation-project/403100/8?u=subodh.malgonde) for more information.  A summary of additional points, follow. 
 - The original FCN-8s was trained in stages. The authors later uploaded a version that was trained all at once to their GitHub repo.  The version in the GitHub repo has one important difference: The outputs of pooling layers 3 and 4 are scaled before they are fed into the 1x1 convolutions.  As a result, some students have found that the model learns much better with the scaling layers included. The model may not converge substantially faster, but may reach a higher IoU and accuracy. 
