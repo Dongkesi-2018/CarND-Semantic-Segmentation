@@ -14,7 +14,17 @@ I used pre-trained VGG16 according to the case provided in the course, then used
 I used the Adam optimizer, and cross entropy. At the same time, L2 regularization has been added. 
 What needs to be explained here is that I did not completely retrain all the parameters. I only trained the layers after the Conv5_1 of the VGG16 model and the newly added layers because my local computing resources are limited. It can be imagined that the results obtained were not better than the model which is retrained with all the parameters. I only got a loss of 0.3 after 30 epoches, but the effect was not too bad.
 
-## 4. Output Samples
+## 4. Hyperparameters 
+
+batch_size: 16
+
+epoches: 30
+
+learning_rate: 0.001
+
+keep_prob: 0.5
+
+## 5. Output Samples
 
 <p align="center">
 <img src="./writeup_res/um_000014.png" height="70%" width="70%" alt="image" />
